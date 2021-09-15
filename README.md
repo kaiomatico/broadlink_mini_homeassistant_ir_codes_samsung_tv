@@ -76,7 +76,7 @@ script:
     sequence:
       - service: remote.send_command
         target:
-          entity_id: remote.blink_remote
+          entity_id: remote.broadlink_remote
         data:
           command:
             - b64:JgCMAJSSEjgROBI3EhMRExITEhMRExI3EjgROBISEhMSExETEhMSNxI3EjgROBI3EhMRExITEhMRExITERMSExI3EjcSOBEABfuTlBI3EjcSOBETEhMSExETEhMSNxI3EjcSExITEhISExITETgSNxI3EjcSOBISEhMSExETEhMSExETEhMROBI3EjcSAA0FAAAAAAAAAAAAAAAA
