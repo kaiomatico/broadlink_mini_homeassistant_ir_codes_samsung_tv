@@ -58,6 +58,7 @@ To be used with Home Assistant Broadlink switch component
 |option|blue|JgBGAJOUEDsQOhA6DxYPFhEUDxYPFg87EDoPOxAVEBUQFRAVEBURFBA6ETkRFBA6ERQQFRAVEDoPFhAVETkRFBE5EzcQOhAADQUAAA==|
 |option|tools|JgCMAJOUETgSNxI3EhMSExETEhMSEhI4EjcSNxITEhISExITERMSNxI4EhISNxITEhMSNxITEhISExI3EhMSNxI3EhMSNxIABfuTkxI4EjcSNxITEhISExITEhISNxI4EjcSExETEhMSExETEjcSNxITEjcSExITEjcSExETEhMSNxITETgSNxITEjcSAA0FAAAAAAAAAAAAAAAA|
 |option|info|JgCMAJSSEjgROBI3EhMRExITEhMRExI3EjgROBISEhMSExETEhMSNxI3EjgROBI3EhMRExITEhMRExITERMSExI3EjcSOBEABfuTlBI3EjcSOBETEhMSExETEhMSNxI3EjcSExITEhISExITETgSNxI3EjcSOBISEhMSExETEhMSExETEhMROBI3EjcSAA0FAAAAAAAAAAAAAAAA|
+|**factory**|**USE WITH CAUTION!!!**|JgBGAJSTEjgSOBI4EhMSExITEhMSExI4EjgSOBITEhMSExITEhMSOBI4EhMSOBI4EjgSExITEhMSExI4EhMSExITEjgSOBIABaQNBQ==|
 ||||
 |player|back|JgBGAJOUDzsPOxA6EBURFBAVEBYOFg87EDoQOhEUDxYPFg8WDxYQOhAVDzsQFQ8WEhMQOhAVEBURORAVETkRORE5ERQQOhEADQUAAA==|
 |player|pause|JgBGAJKVETkQOhA6EhMQFREUERQQFRA7DzsQOhAVEBUPFhAVDxYQFRE5EBUQOhAVERQROREUETkQFRE5ERQQOhA6EBUQOhAADQUAAA==|
@@ -67,3 +68,76 @@ To be used with Home Assistant Broadlink switch component
 
 
 If you are looking for a specific  code that isn't in the table please open an issue and I will try to find it.
+
+To enter the service menu (info->factory) on a UE50MU6179 in home assistant add the following to your configuration.yaml (**use at your own RISK**):
+```
+script:
+  factory:
+    sequence:
+      - service: remote.send_command
+        target:
+          entity_id: remote.blink_remote
+        data:
+          command:
+            - b64:JgCMAJSSEjgROBI3EhMRExITEhMRExI3EjgROBISEhMSExETEhMSNxI3EjgROBI3EhMRExITEhMRExITERMSExI3EjcSOBEABfuTlBI3EjcSOBETEhMSExETEhMSNxI3EjcSExITEhISExITETgSNxI3EjcSOBISEhMSExETEhMSExETEhMROBI3EjcSAA0FAAAAAAAAAAAAAAAA
+            - b64:JgBGAJSTEjgSOBI4EhMSExITEhMSExI4EjgSOBITEhMSExITEhMSOBI4EhMSOBI4EjgSExITEhMSExI4EhMSExITEjgSOBIABaQNBQ==
+```
+To convert hex codes to homeassistant base64 codes use this python3 script (all credits go to this github gist: https://gist.github.com/albertnis/3ccd693fdf7369d325293eaa3089f946)
+```
+#!/usr/bin/env python
+
+# Python 3 port of https://gist.githubusercontent.com/appden/42d5272bf128125b019c45bc2ed3311f/raw/bdede927b231933df0c1d6d47dcd140d466d9484/pronto2broadlink.py
+# Discovered at https://www.reddit.com/r/homeautomation/comments/7m7ddv/broadlink_ir_database/dru77am/
+# More protocol documentation at https://github.com/mjg59/python-broadlink/blob/master/protocol.md
+# Run standalone with:
+# python pronto2broadlink.py "<pronto code>" | xxd -r -p | base64 --wrap=0
+
+import binascii
+import struct
+
+def pronto2lirc(pronto):
+    codes = [int(binascii.hexlify(pronto[i:i+2]), 16) for i in range(0, len(pronto), 2)]
+
+    if codes[0]:
+        raise ValueError('Pronto code should start with 0000')
+    if len(codes) != 4 + 2 * (codes[2] + codes[3]):
+        raise ValueError('Number of pulse widths does not match the preamble')
+
+    frequency = 1 / (codes[1] * 0.241246)
+    return [int(round(code / frequency)) for code in codes[4:]]
+
+def lirc2broadlink(pulses):
+    array = bytearray()
+
+    for pulse in pulses:
+        pulse = (int)(pulse * 269 / 8192)  # 32.84ms units
+
+        if pulse < 256:
+            array += bytearray(struct.pack('>B', pulse))  # big endian (1-byte)
+        else:
+            array += bytearray([0x00])  # indicate next number is 2-bytes
+            array += bytearray(struct.pack('>H', pulse))  # big endian (2-bytes)
+
+    packet = bytearray([0x26, 0x00])  # 0x26 = IR, 0x00 = no repeats
+    packet += bytearray(struct.pack('<H', len(array)))  # little endian byte count
+    packet += array
+    packet += bytearray([0x0d, 0x05])  # IR terminator
+
+    # Add 0s to make ultimate packet size a multiple of 16 for 128-bit AES encryption.
+    remainder = (len(packet) + 4) % 16  # rm.send_data() adds 4-byte header (02 00 00 00)
+    if remainder:
+        packet += bytearray(16 - remainder)
+
+    return packet
+
+if __name__ == '__main__':
+    import sys
+
+    for code in sys.argv[1:]:
+        pronto = bytearray.fromhex(code)
+        pulses = pronto2lirc(pronto)
+        packet = lirc2broadlink(pulses)
+
+        print()
+        print(binascii.hexlify(packet))
+```
